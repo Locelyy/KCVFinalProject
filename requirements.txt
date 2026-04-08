@@ -1,5 +1,5 @@
 streamlit
-torch==2.2.2
+torch==2.10.0
 torchvision
 huggingface_hub
 opencv-python-headless
