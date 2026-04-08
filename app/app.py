@@ -8,6 +8,7 @@ import numpy as np
 import cv2
 import base64
 from io import BytesIO
+from huggingface_hub import hf_hub_download
 
 st.set_page_config(page_title="MammoCNN", layout="centered")
 
@@ -196,34 +197,63 @@ h1, h2, h3, p, span, label, div {
 
 
 @st.cache_resource
-def load_model():
-    model = models.resnet50(weights=None)
-    num_ftrs = model.fc.in_features
-    model.fc = nn.Linear(num_ftrs, 8)
-    model.load_state_dict(torch.load(
-        "models/best_resnet50_all_mag.pth",
-        map_location=torch.device('cpu')
-    ))
-    model.eval()
-    return model
-
-
-@st.cache_resource
 def load_efficientnet_model():
+    model_path = hf_hub_download(
+        repo_id="Locelyy/HistopathAI",   # your HF repo
+        filename="models/best_efficientnet_v2_all_mag.pth"     # EXACT path in HF repo
+    )
+
+    # 🔧 Rebuild model architecture
     model = models.efficientnet_v2_s(weights=None)
     num_ftrs = model.classifier[1].in_features
     model.classifier[1] = nn.Linear(num_ftrs, 8)
-    model.load_state_dict(torch.load("models/best_efficientnet_v2_all_mag.pth", map_location=torch.device('cpu')))
+
+    # 📦 Load weights
+    model.load_state_dict(
+        torch.load(model_path, map_location=torch.device('cpu'))
+    )
+
     model.eval()
     return model
 
-
 @st.cache_resource
 def load_densenet_model():
+    # 🔽 Download from Hugging Face
+    model_path = hf_hub_download(
+        repo_id="Locelyy/HistopathAI",
+        filename="models/best_densenet121_cutmix_all_mag.pth"
+    )
+
+    # 🔧 Rebuild DenseNet121
     model = models.densenet121(weights=None)
     num_ftrs = model.classifier.in_features
-    model.classifier = nn.Linear(num_ftrs, 8)
-    model.load_state_dict(torch.load("models/best_densenet121_cutmix_all_mag.pth", map_location=torch.device('cpu')))
+    model.classifier = nn.Linear(num_ftrs, 8)  # 8 classes
+
+    # 📦 Load weights
+    model.load_state_dict(
+        torch.load(model_path, map_location=torch.device('cpu'))
+    )
+
+    model.eval()
+    return model
+    
+@st.cache_resource
+def load_model():
+    model_path = hf_hub_download(
+        repo_id="Locelyy/HistopathAI",
+        filename="models/best_resnet50_all_mag.pth"
+    )
+
+    # 🔧 Rebuild ResNet50 architecture
+    model = models.resnet50(weights=None)
+    num_ftrs = model.fc.in_features
+    model.fc = nn.Linear(num_ftrs, 8)  # 8 classes
+
+    # 📦 Load weights
+    model.load_state_dict(
+        torch.load(model_path, map_location=torch.device('cpu'))
+    )
+
     model.eval()
     return model
 
