@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torchvision import models, transforms
 from PIL import Image
 import numpy as np
-# import cv2
+import cv2
 import base64
 from io import BytesIO
 from huggingface_hub import hf_hub_download
