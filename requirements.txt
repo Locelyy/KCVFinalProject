@@ -1,7 +1,7 @@
 streamlit
 torch==2.10.0
 torchvision
-huggingface_hub
+huggingface-hub
 opencv-python-headless
 pillow
 numpy
