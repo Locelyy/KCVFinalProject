@@ -10,7 +10,7 @@ import base64
 from io import BytesIO
 from huggingface_hub import hf_hub_download
 
-st.set_page_config(page_title="MammoCNN", layout="centered")
+st.set_page_config(page_title="HistopathAI", layout="centered")
 
 CONFIDENCE_THRESHOLD = 0.90
 
