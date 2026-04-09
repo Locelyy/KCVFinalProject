@@ -205,8 +205,11 @@ def load_efficientnet_model():
 
     # 🔧 Rebuild model architecture
     model = models.efficientnet_v2_s(weights=None)
-    num_ftrs = model.classifier[1].in_features
-    model.classifier[1] = nn.Linear(num_ftrs, 8)
+    num_ftrs = model.classifier[-1].in_features
+    model.classifier = nn.Sequential(
+        nn.Dropout(p=0.5),
+        nn.Linear(num_ftrs, 8)
+    )
 
     # 📦 Load weights
     model.load_state_dict(
@@ -247,7 +250,10 @@ def load_model():
     # 🔧 Rebuild ResNet50 architecture
     model = models.resnet50(weights=None)
     num_ftrs = model.fc.in_features
-    model.fc = nn.Linear(num_ftrs, 8)  # 8 classes
+    model.fc = nn.Sequential(
+        nn.Dropout(p=0.5),
+        nn.Linear(num_ftrs, 8)
+    )
 
     # 📦 Load weights
     model.load_state_dict(
