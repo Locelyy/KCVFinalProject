@@ -200,11 +200,11 @@ h1, h2, h3, p, span, label, div {
 def load_efficientnet_model():
     model_path = hf_hub_download(
         repo_id="Locelyy/HistopathAI",   # your HF repo
-        filename="models/best_efficientnet_v2_all_mag.pth"     # EXACT path in HF repo
+        filename="models/best_efficientnet_b5_all_mag.pth"     # EXACT path in HF repo
     )
 
     # 🔧 Rebuild model architecture
-    model = models.efficientnet_v2_s(weights=None)
+    model = models.efficientnet_b5(weights=None)
     num_ftrs = model.classifier[-1].in_features
     model.classifier = nn.Sequential(
         nn.Dropout(p=0.5),
