@@ -199,15 +199,15 @@ h1, h2, h3, p, span, label, div {
 @st.cache_resource
 def load_efficientnet_model():
     model_path = hf_hub_download(
-        repo_id="Locelyy/HistopathAI",   # your HF repo
-        filename="models/best_efficientnet_b5_all_mag.pth"     # EXACT path in HF repo
+        repo_id="Locelyy/HistopathAI",
+        filename="models/best_efficientnet_b5_all_mag.pth"
     )
 
     # 🔧 Rebuild model architecture
     model = models.efficientnet_b5(weights=None)
     num_ftrs = model.classifier[-1].in_features
     model.classifier = nn.Sequential(
-        nn.Dropout(p=0.5),
+        nn.Dropout(p=0.4),
         nn.Linear(num_ftrs, 8)
     )
 
@@ -331,7 +331,7 @@ def numpy_to_base64(arr: np.ndarray) -> str:
 
 # ── Header ──────────────────────────────────────────────────────────────────
 st.markdown("<h1 style='text-align:center;font-size:28px;font-weight:500;letter-spacing:-0.5px;'>HistopathAI</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align:center;font-size:13px;color:rgba(255,255,255,0.5);'>Breast cancer histopathology image classification · ResNet50 · EfficientNetV2 · DenseNet121 + Grad-CAM</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center;font-size:13px;color:rgba(255,255,255,0.5);'>Breast cancer histopathology image classification · ResNet50 · EfficientNet-B5 · DenseNet121 + Grad-CAM</p>", unsafe_allow_html=True)
 
 # ── File uploader ────────────────────────────────────────────────────────
 if "uploaded_file" not in st.session_state:
@@ -401,9 +401,19 @@ if uploaded_file is not None:
             progress.progress(90)
             
             # Run comparison models
+            # EfficientNet-B5 requires its own 456x456 input tensor
+            preprocess_b5 = transforms.Compose([
+                transforms.Resize(512),
+                transforms.CenterCrop(456),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406],
+                                     [0.229, 0.224, 0.225])
+            ])
+            input_tensor_b5 = preprocess_b5(image).unsqueeze(0)
+
             eff_model = load_efficientnet_model()
             with torch.no_grad():
-                eff_out = eff_model(input_tensor)
+                eff_out = eff_model(input_tensor_b5)
             eff_probs = torch.softmax(eff_out, dim=1)[0]
             conf_eff, pred_idx_eff = torch.max(eff_probs, 0)
             
@@ -458,7 +468,7 @@ if uploaded_file is not None:
             """, unsafe_allow_html=True)
             
             res_circle = make_circular_progress(conf_value, "ResNet50", CLASS_NAMES[pred_idx], "#3b82f6")
-            eff_circle = make_circular_progress(conf_eff.item(), "EfficientNet-V2", CLASS_NAMES[pred_idx_eff], "#10b981")
+            eff_circle = make_circular_progress(conf_eff.item(), "EfficientNet-B5", CLASS_NAMES[pred_idx_eff], "#10b981")
             den_circle = make_circular_progress(conf_dense.item(), "DenseNet121", CLASS_NAMES[pred_idx_dense], "#8b5cf6")
             
             st.markdown("""<h3 style="font-size:14px; font-weight:500; margin-top:24px; margin-bottom:12px; color:rgba(255,255,255,0.8); text-align:center;">Model Comparison</h3>""", unsafe_allow_html=True)
