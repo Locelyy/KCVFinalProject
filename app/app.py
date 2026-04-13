@@ -8,6 +8,7 @@ import numpy as np
 import cv2
 import base64
 from io import BytesIO
+import os
 from huggingface_hub import hf_hub_download
 
 st.set_page_config(page_title="HistopathAI", layout="centered")
@@ -198,10 +199,14 @@ h1, h2, h3, p, span, label, div {
 
 @st.cache_resource
 def load_efficientnet_model():
-    model_path = hf_hub_download(
-        repo_id="Locelyy/HistopathAI",
-        filename="models/best_efficientnet_b5_all_mag.pth"
-    )
+    local_path = "models/best_efficientnet_b5_all_mag.pth"
+    if os.path.exists(local_path):
+        model_path = local_path
+    else:
+        model_path = hf_hub_download(
+            repo_id="Locelyy/HistopathAI",
+            filename=local_path
+        )
 
     # 🔧 Rebuild model architecture
     model = models.efficientnet_b5(weights=None)
@@ -221,11 +226,15 @@ def load_efficientnet_model():
 
 @st.cache_resource
 def load_densenet_model():
-    # 🔽 Download from Hugging Face
-    model_path = hf_hub_download(
-        repo_id="Locelyy/HistopathAI",
-        filename="models/best_densenet121_cutmix_all_mag.pth"
-    )
+    local_path = "models/best_densenet121_cutmix_all_mag.pth"
+    if os.path.exists(local_path):
+        model_path = local_path
+    else:
+        # 🔽 Download from Hugging Face
+        model_path = hf_hub_download(
+            repo_id="Locelyy/HistopathAI",
+            filename=local_path
+        )
 
     # 🔧 Rebuild DenseNet121
     model = models.densenet121(weights=None)
@@ -242,10 +251,14 @@ def load_densenet_model():
     
 @st.cache_resource
 def load_model():
-    model_path = hf_hub_download(
-        repo_id="Locelyy/HistopathAI",
-        filename="models/best_resnet50_all_mag.pth"
-    )
+    local_path = "models/best_resnet50_all_mag.pth"
+    if os.path.exists(local_path):
+        model_path = local_path
+    else:
+        model_path = hf_hub_download(
+            repo_id="Locelyy/HistopathAI",
+            filename=local_path
+        )
 
     # 🔧 Rebuild ResNet50 architecture
     model = models.resnet50(weights=None)
