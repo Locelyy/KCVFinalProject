@@ -13,7 +13,7 @@ from huggingface_hub import hf_hub_download
 
 st.set_page_config(page_title="HistopathAI", layout="centered")
 
-CONFIDENCE_THRESHOLD = 0.50
+CONFIDENCE_THRESHOLD = 0.10
 
 CLASS_NAMES = [
     "Adenosis",
