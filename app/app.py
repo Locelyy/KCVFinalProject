@@ -13,7 +13,7 @@ from huggingface_hub import hf_hub_download
 
 st.set_page_config(page_title="HistopathAI", layout="centered")
 
-CONFIDENCE_THRESHOLD = 0.10
+CONFIDENCE_THRESHOLD = 0.20
 
 CLASS_NAMES = [
     "Adenosis",
@@ -199,7 +199,7 @@ h1, h2, h3, p, span, label, div {
 
 @st.cache_resource
 def load_efficientnet_model():
-    local_path = "models/best_efficientnet_b5_all_mag.pth"
+    local_path = "models/efficientnet_b5.pth"
     if os.path.exists(local_path):
         model_path = local_path
     else:
@@ -226,7 +226,7 @@ def load_efficientnet_model():
 
 @st.cache_resource
 def load_densenet_model():
-    local_path = "models/best_densenet121_cutmix_all_mag.pth"
+    local_path = "models/densenet121.pth"
     if os.path.exists(local_path):
         model_path = local_path
     else:
@@ -247,11 +247,23 @@ def load_densenet_model():
     )
 
     model.eval()
+    
+    # 🩹 Patch forward to avoid inplace ReLU error during Grad-CAM
+    import types
+    def forward_patched(self, x: torch.Tensor) -> torch.Tensor:
+        features = self.features(x)
+        out = F.relu(features, inplace=False)
+        out = F.adaptive_avg_pool2d(out, (1, 1))
+        out = torch.flatten(out, 1)
+        out = self.classifier(out)
+        return out
+    model.forward = types.MethodType(forward_patched, model)
+
     return model
     
 @st.cache_resource
 def load_model():
-    local_path = "models/best_resnet50_all_mag.pth"
+    local_path = "models/resnet50.pth"
     if os.path.exists(local_path):
         model_path = local_path
     else:
@@ -290,21 +302,23 @@ def make_circular_progress(conf_val, model_name, pred_name, color="#6366f1"):
 </div>"""
 
 
-def generate_gradcam(model, input_tensor, target_class_idx):
-    target_layer = model.layer4[-1]
+def generate_gradcam(model, input_tensor, target_class_idx, target_layer):
     activations = []
     gradients = []
 
     def forward_hook(module, input, output):
-        activations.append(output)
+        activations.append(output.clone().detach())
 
     def backward_hook(module, grad_input, grad_output):
-        gradients.append(grad_output[0])
+        gradients.append(grad_output[0].clone().detach())
 
     h1 = target_layer.register_forward_hook(forward_hook)
     h2 = target_layer.register_full_backward_hook(backward_hook)
 
     model.zero_grad()
+    if not input_tensor.requires_grad:
+        input_tensor.requires_grad = True
+        
     output = model(input_tensor)
     loss = output[0, target_class_idx]
     loss.backward()
@@ -389,60 +403,86 @@ if uploaded_file is not None:
         st.markdown('<p class="analyzing-label">Analyzing</p>', unsafe_allow_html=True)
         progress = st.progress(0)
 
-        progress.progress(15)
-        output = model(input_tensor)
-        progress.progress(50)
+        # 1. ResNet50
+        progress.progress(10)
+        with torch.no_grad():
+            output = model(input_tensor)
         probs = torch.softmax(output, dim=1)[0]
         conf, pred_idx = torch.max(probs, 0)
         conf_value = conf.item()
-        progress.progress(75)
 
-        # ── Confidence threshold check ───────────────────────────────────
-        if conf_value < CONFIDENCE_THRESHOLD:
+        # 2. EfficientNet-B5
+        progress.progress(30)
+        preprocess_b5 = transforms.Compose([
+            transforms.Resize(512),
+            transforms.CenterCrop(456),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406],
+                                 [0.229, 0.224, 0.225])
+        ])
+        input_tensor_b5 = preprocess_b5(image).unsqueeze(0)
+
+        eff_model = load_efficientnet_model()
+        with torch.no_grad():
+            eff_out = eff_model(input_tensor_b5)
+        eff_probs = torch.softmax(eff_out, dim=1)[0]
+        conf_eff, pred_idx_eff = torch.max(eff_probs, 0)
+        conf_eff_value = conf_eff.item()
+
+        # 3. DenseNet121
+        progress.progress(50)
+        dense_model = load_densenet_model()
+        with torch.no_grad():
+            dense_out = dense_model(input_tensor)
+        dense_probs = torch.softmax(dense_out, dim=1)[0]
+        conf_dense, pred_idx_dense = torch.max(dense_probs, 0)
+        conf_dense_value = conf_dense.item()
+
+        progress.progress(70)
+
+        # ── Ensemble Soft Voting ─────────────────────────────────────────
+        ensemble_probs = (probs + eff_probs + dense_probs) / 3.0
+        ensemble_conf, ensemble_pred_idx = torch.max(ensemble_probs, 0)
+        ensemble_conf_value = ensemble_conf.item()
+
+        if ensemble_conf_value < CONFIDENCE_THRESHOLD:
             progress.progress(100)
             st.markdown(f"""
             <div class="warn-badge">
                 <p class="warn-title">⚠️ Not a breast disease histopathology image</p>
-                <p class="warn-sub">Confidence too low ({conf_value*100:.2f}%) — please upload a valid breast tissue histopathology image.</p>
+                <p class="warn-sub">Confidence too low ({ensemble_conf_value*100:.2f}%) — please upload a valid breast tissue histopathology image.</p>
             </div>
             """, unsafe_allow_html=True)
-
         else:
-            cam = generate_gradcam(model, input_tensor, pred_idx)
-            progress.progress(80)
+            # Pick the model that had the highest confidence for the ensembled predicted class
+            res_class_conf = probs[ensemble_pred_idx].item()
+            eff_class_conf = eff_probs[ensemble_pred_idx].item()
+            dense_class_conf = dense_probs[ensemble_pred_idx].item()
+            
+            highest_class_conf = max(res_class_conf, eff_class_conf, dense_class_conf)
+            
+            if highest_class_conf == res_class_conf:
+                best_model_name = "ResNet50"
+                target_layer = model.layer4[-1]
+                cam = generate_gradcam(model, input_tensor, ensemble_pred_idx, target_layer)
+            elif highest_class_conf == eff_class_conf:
+                best_model_name = "EfficientNet-B5"
+                target_layer = eff_model.features[-1]
+                cam = generate_gradcam(eff_model, input_tensor_b5, ensemble_pred_idx, target_layer)
+            else:
+                best_model_name = "DenseNet121"
+                target_layer = dense_model.features.norm5
+                cam = generate_gradcam(dense_model, input_tensor, ensemble_pred_idx, target_layer)
+
+            progress.progress(85)
             overlay = overlay_heatmap(image, cam)
-            progress.progress(90)
-            
-            # Run comparison models
-            # EfficientNet-B5 requires its own 456x456 input tensor
-            preprocess_b5 = transforms.Compose([
-                transforms.Resize(512),
-                transforms.CenterCrop(456),
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406],
-                                     [0.229, 0.224, 0.225])
-            ])
-            input_tensor_b5 = preprocess_b5(image).unsqueeze(0)
-
-            eff_model = load_efficientnet_model()
-            with torch.no_grad():
-                eff_out = eff_model(input_tensor_b5)
-            eff_probs = torch.softmax(eff_out, dim=1)[0]
-            conf_eff, pred_idx_eff = torch.max(eff_probs, 0)
-            
-            dense_model = load_densenet_model()
-            with torch.no_grad():
-                dense_out = dense_model(input_tensor)
-            dense_probs = torch.softmax(dense_out, dim=1)[0]
-            conf_dense, pred_idx_dense = torch.max(dense_probs, 0)
-
             progress.progress(100)
 
             # Result badge
             st.markdown(f"""
             <div class="result-badge">
-                <span class="result-name">{CLASS_NAMES[pred_idx]}</span>
-                <span class="result-conf">{conf_value*100:.2f}% confidence</span>
+                <span class="result-name">{CLASS_NAMES[ensemble_pred_idx]} (Ensemble)</span>
+                <span class="result-conf">{ensemble_conf_value*100:.2f}% confidence</span>
             </div>
             """, unsafe_allow_html=True)
 
